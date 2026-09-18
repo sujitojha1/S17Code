@@ -70,6 +70,7 @@
   <div class="head"><span>S14 app · the agent answers in UI</span><span style="margin-left:auto">bare-minimal shell · the protocol does the work</span></div>
   <div class="startbar">
     <input id="prompt" value="Teach me for IIT JEE. Ask me which subject to study." />
+    <input id="token" type="password" placeholder="S17_CONTROL_TOKEN" autocomplete="off" style="max-width:190px" />
     <button id="ask">Ask</button>
   </div>
   <div class="status" id="status"></div>
@@ -83,6 +84,11 @@
 // interface changes the world. ----
 const API = "";                     // same origin as the runtime (8113)
 let convo = [];                     // the running conversation (context for each turn)
+// POST /v1/agent/runs is a control-plane write (s17code/auth.py). The token is
+// typed in here and kept in this tab's sessionStorage; the server never embeds it.
+const tokenEl = document.getElementById("token");
+try { tokenEl.value = sessionStorage.getItem("s17_control_token") || ""; } catch(e) {}
+tokenEl.addEventListener("change",()=>{ try { sessionStorage.setItem("s17_control_token", tokenEl.value.trim()); } catch(e) {} });
 const $ = (t,c)=>{const e=document.createElement(t);if(c)e.className=c;return e;};
 const T = t=>document.createTextNode(t==null?"":String(t));
 const resolve=(v,dm)=>(v&&typeof v==="object"&&"$bind"in v)?ptr(dm,v["$bind"]):v;
@@ -159,9 +165,12 @@ async function runTurn(userText){
   setStatus('<span class="pill think">composing…</span> the agent is writing an interface for: "'+userText+'"');
   const goal = convo.length===1 ? convo[0]
      : convo[0] + "\nSo far the user then picked: " + convo.slice(1).join(", then ") + ".\nRespond with the next interface for that.";
-  const res = await fetch(API+"/v1/agent/runs",{method:"POST",headers:{"Content-Type":"application/json"},
+  const res = await fetch(API+"/v1/agent/runs",{method:"POST",
+    headers:{"Content-Type":"application/json","Authorization":"Bearer "+tokenEl.value.trim()},
     body:JSON.stringify({prompt:goal, respond_as:"ui", tenant_id:"course", project_id:"s14", user_id:"viewer", agent_id:"app"})});
-  const run = await res.json();
+  const run = await res.json().catch(()=>({}));
+  if(!res.ok){ convo.pop(); crumbs();
+    setStatus('<span class="pill">'+res.status+'</span> '+(res.status===401?"enter a valid S17_CONTROL_TOKEN":"run not started")); return; }
   const rid = run.run_id;
   const c = await (await fetch(API+"/v1/runs/"+rid+"/composed")).json();
   if(c.surface){ render(c.surface);

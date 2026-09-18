@@ -189,11 +189,18 @@ async def composed(run_id: str, request: Request):
     output), re-validated. Distinct from /surface, which is the run's progress
     view. This is what a UI-only app renders."""
     run = _read_run(request, run_id)
-    node = run["nodes"].get("surface") or {}
+    # Find the composer by capability, never by node id: the planner names
+    # nodes, so "surface" is only one label it might choose.
+    terminal = request.app.state.runtime.registry.terminal_skills("ui")
+    nodes = [n for n in run["nodes"].values() if n.get("skill") in terminal]
+    node = (next((n for n in nodes if n.get("state") == "succeeded"), None)
+            or (nodes[-1] if nodes else {}))
     res = node.get("result") or {}
     surf = res.get("surface") or {}
     if not surf.get("components"):
-        raise HTTPException(404, "run has no composed interface (no compose_surface node)")
+        reason = ("no compose_surface node" if not node
+                  else f"compose_surface node is {node.get('state')}")
+        raise HTTPException(404, f"run has no composed interface ({reason})")
     result = validate_surface(surf)
     return {
         "run_id": run_id,
